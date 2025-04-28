@@ -4,7 +4,6 @@
 # ==============================================================================
 
 #' Analyze Population Structure
-#'
 #' @param geno Genotype matrix (markers x samples) with first 3 cols: marker, chr, pos
 #' @param n_clusters Number of clusters for k-means (default=5)
 #' @param n_pcoa Number of principal coordinates to compute (default=3)
