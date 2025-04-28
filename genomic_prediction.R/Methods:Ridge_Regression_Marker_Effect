@@ -1,0 +1,146 @@
+# ==============================================================================
+# Genome-Wide Prediction Pipeline
+# Methods: Ridge Regression BLUP, Marker Effect Estimation
+# ==============================================================================
+
+library(SelectionTools)
+library(MASS)
+
+# ----------------------------
+# 1. Data Preparation
+# ----------------------------
+
+#' Load genomic data and prepare design matrices
+#' @param marker_path Path to marker data file
+#' @param pheno_path Path to phenotype data file
+#' @return List containing Z (design matrix), y (phenotypes), and metadata
+
+prepare_data <- function(marker_path, pheno_path) {
+  # Read marker data
+  st.read.marker.data(marker_path, format = "m", data.set = "t")
+  
+  # Build incidence matrix
+  Z <- gs.build.Z(auxfiles = TRUE, data.set = "t")
+  
+  # Read phenotypes
+  st.read.performance.data(pheno_path, data.set = "t")
+  y <- st.return.performance.data(data.set = "t")[,-1]
+  
+  # Create intercept matrix
+  X <- matrix(1, ncol = 1, nrow = nrow(Z))
+  
+  return(list(
+    Z = Z,
+    X = X,
+    y = y,
+    markers = colnames(Z)
+  ))
+}
+
+# ----------------------------
+# 2. Variance Components Estimation
+# ----------------------------
+
+#' Estimate variance components using mixed model
+#' @param Z Design matrix
+#' @param X Fixed effects matrix
+#' @param y Phenotype vector
+#' @return List with variance components and shrinkage factor
+
+estimate_variance_components <- function(Z, X, y) {
+  # Calculate genetic relationship matrix
+  V <- Z %*% t(Z)
+  
+  # Fit mixed model
+  model <- st.mxd(y = y, X = X, V = V)
+  
+  # Extract variances
+  var_g <- model$sigma[1]  # Genetic variance
+  var_e <- model$sigma[2]  # Residual variance
+  
+  # Calculate shrinkage
+  shrinkage <- var_e / var_g
+  
+  return(list(
+    var_g = var_g,
+    var_e = var_e,
+    shrinkage = shrinkage,
+    model = model
+  ))
+}
+
+# ----------------------------
+# 3. Marker Effect Estimation
+# ----------------------------
+
+#' Perform genome-wide prediction with different methods
+#' @param data Prepared data object
+#' @param hsq Heritability estimate
+#' @return List of prediction results
+
+genomic_prediction <- function(data, hsq = 0.9) {
+  # Homogeneous shrinkage
+  m <- ncol(data$Z)
+  shrinkage_homog <- m * (1/hsq - 1)
+  
+  # Heterogeneous shrinkage
+  anova_results <- gs.single.marker.aov(data.set = "t")
+  SM_var <- anova_results[,"var"]
+  
+  var_g_total <- data$vc$var_g * m
+  var_marker <- var_g_total * SM_var / sum(SM_var)
+  shrinkage_hetero <- data$vc$var_e / var_marker
+  
+  return(list(
+    homogeneous = shrinkage_homog,
+    heterogeneous = shrinkage_hetero,
+    anova = anova_results
+  ))
+}
+
+# ----------------------------
+# 4. Main Workflow
+# ----------------------------
+
+# Example Usage
+data <- prepare_data(
+  marker_path = "data/genotypes.mpo",
+  pheno_path = "data/phenotypes.phe"
+)
+
+# Estimate variance components
+variance_components <- estimate_variance_components(data$Z, data$X, data$y)
+
+# Perform prediction
+prediction_results <- genomic_prediction(
+  data = list(Z = data$Z, vc = variance_components),
+  hsq = 0.9
+)
+
+# ----------------------------
+# 5. Save Results
+# ----------------------------
+saveRDS(
+  list(
+    variance_components = variance_components,
+    prediction_results = prediction_results
+  ),
+  "results/genomic_prediction_results.RDS"
+)
+
+# ----------------------------
+# 6. Visualization (Example)
+# ----------------------------
+png("results/shrinkage_comparison.png", width=10, height=6, units="in", res=300)
+par(mfrow=c(1,2))
+
+# Homogeneous shrinkage
+plot(density(prediction_results$homogeneous),
+     main="Homogeneous Shrinkage",
+     xlab="Shrinkage Factor")
+
+# Heterogeneous shrinkage
+plot(density(prediction_results$heterogeneous[1:20]),
+     main="First 20 Markers Heterogeneous Shrinkage",
+     xlab="Shrinkage Factor")
+dev.off()
