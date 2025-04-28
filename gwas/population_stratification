@@ -1,0 +1,106 @@
+# ==============================================================================
+# Population Stratification Analysis 
+# Part of GWAS Pipeline
+# ==============================================================================
+
+#' Analyze Population Structure
+#'
+#' @param geno Genotype matrix (markers x samples) with first 3 cols: marker, chr, pos
+#' @param n_clusters Number of clusters for k-means (default=5)
+#' @param n_pcoa Number of principal coordinates to compute (default=3)
+#' @return List containing distance matrices, clustering, and PCoA results
+
+analyze_population_structure <- function(geno, n_clusters = 5, n_pcoa = 3) {
+  
+  # ----------------------------
+  # 1. Prepare Genotype Matrix
+  # ----------------------------
+  X <- t(data.matrix(geno[, -c(1:3)]))  # Transpose to samples x markers
+  rownames(X) <- geno$marker
+  
+  # ----------------------------
+  # 2. Distance Calculations
+  # ----------------------------
+  distances <- list(
+    manhattan = dist(X, method = "manhattan"),
+    euclidean = dist(X, method = "euclidean")
+  )
+  
+  # ----------------------------
+  # 3. Clustering
+  # ----------------------------
+  clustering <- kmeans(distances$euclidean, centers = n_clusters)
+  
+  # ----------------------------
+  # 4. Principal Coordinates Analysis
+  # ----------------------------
+  pcoa <- cmdscale(distances$euclidean, k = n_pcoa, eig = TRUE)
+  
+  # Variance explained
+  eigenvalues <- pcoa$eig
+  variance_explained <- eigenvalues / sum(eigenvalues)
+  cumulative_variance <- cumsum(variance_explained)
+  
+  # ----------------------------
+  # 5. Visualization
+  # ----------------------------
+  png("results/population_structure.png", width=12, height=5, units="in", res=300)
+  par(mfrow=c(1,3))
+  
+  # Heatmap
+  heatmap(
+    as.matrix(distances$manhattan),
+    col = colorRampPalette(c("white", "red"))(100),
+    symm = TRUE,
+    main = "Genetic Distance Heatmap"
+  )
+  
+  # PCoA Plot (PC1 vs PC2)
+  plot(
+    pcoa$points[,1], pcoa$points[,2],
+    col = clustering$cluster,
+    pch = 19,
+    xlab = paste0("PC1 (", round(100*variance_explained[1],1), "%)"),
+    ylab = paste0("PC2 (", round(100*variance_explained[2],1), "%)"),
+    main = "PCoA Clustering"
+  )
+  
+  # Variance Explained Plot
+  plot(
+    1:length(variance_explained),
+    cumulative_variance,
+    type = "b",
+    xlab = "Principal Coordinate",
+    ylab = "Cumulative Variance Explained",
+    main = "Variance Decomposition"
+  )
+  
+  dev.off()
+  
+  # ----------------------------
+  # 6. Return Results
+  # ----------------------------
+  return(list(
+    distances = distances,
+    clustering = clustering,
+    pcoa = pcoa,
+    variance = list(
+      explained = variance_explained,
+      cumulative = cumulative_variance
+    )
+  ))
+}
+
+# ==============================================================================
+# Example Usage (Uncomment to run)
+# ==============================================================================
+# library(rrBLUP)
+# geno <- readRDS("data/geno_rapeseed.RDS")
+# 
+# pop_strat_results <- analyze_population_structure(
+#   geno = geno,
+#   n_clusters = 5,
+#   n_pcoa = 3
+# )
+# 
+# saveRDS(pop_strat_results, "results/pop_strat_results.RDS")
