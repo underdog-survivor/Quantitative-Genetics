@@ -1,0 +1,89 @@
+# ==============================================================================
+# Genomic Prediction Method Comparison via Cross-Validation
+# Methods: RR (BLUP), RR-BLUP (default), RR-HET (RMLA)
+# ==============================================================================
+
+library(SelectionTools)
+
+# ----------------------------
+# 1. Dataset Preparation
+# ----------------------------
+
+prepare_datasets <- function(source_dataset = "t") {
+  # Copy base dataset to three new datasets
+  st.copy.marker.data("m1", source_dataset)
+  st.copy.marker.data("m2", source_dataset)
+  st.copy.marker.data("m3", source_dataset)
+}
+
+# ----------------------------
+# 2. Model Estimation Functions
+# ----------------------------
+
+estimate_effects <- function() {
+  # Method 1: BLUP with fixed heritability
+  gs.esteff.rr(method = "BLUP", hsq = 0.9, maxiter = 0, data.set = "m1")
+  
+  # Method 2: Default BLUP
+  gs.esteff.rr(method = "BLUP", data.set = "m2")
+  
+  # Method 3: RMLA method
+  gs.esteff.rr(method = "RMLA", data.set = "m3")
+}
+
+# ----------------------------
+# 3. Cross-Validation Wrapper
+# ----------------------------
+
+run_cross_validation <- function(method, dataset, n_runs = 50, n_test = 200) {
+  gs.cross.validation(
+    data.set = dataset,
+    estimation.method = method,
+    n.ts = n_test,
+    n.runs = n_runs
+  )
+}
+
+# ----------------------------
+# 4. Analysis Pipeline
+# ----------------------------
+
+# Set seed for reproducibility
+set.seed(2023)
+
+# Prepare datasets
+prepare_datasets()
+
+# Estimate effects using different methods
+estimate_effects()
+
+# Run cross-validation for each method
+results <- list(
+  RR = run_cross_validation("BLUP", "m1"),
+  RR_BLUP = run_cross_validation("BLUP", "m2"),
+  RR_HET = run_cross_validation("RMLA", "m3")
+)
+
+# ----------------------------
+# 5. Results Analysis
+# ----------------------------
+
+# Calculate mean correlations
+mean_cors <- sapply(results, function(x) mean(x$cor))
+
+# Print results
+cat("Mean Prediction Accuracies:\n",
+    "RR:    ", round(mean_cors["RR"], 4), "\n",
+    "RR-BLUP:", round(mean_cors["RR_BLUP"], 4), "\n",
+    "RR-HET: ", round(mean_cors["RR_HET"], 4))
+
+# ----------------------------
+# 7. Save Results
+# ----------------------------
+saveRDS(
+  list(
+    results = results,
+    mean_cors = mean_cors
+  ),
+  "results/cv_results.RDS"
+)
