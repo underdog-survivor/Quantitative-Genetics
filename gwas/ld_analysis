@@ -1,0 +1,103 @@
+# ==============================================================================
+# Linkage Disequilibrium (LD) Analysis 
+# ==============================================================================
+
+#' Perform LD analysis for significant SNPs
+#'
+#' @param geno Full genotype matrix (markers x samples)
+#' @param sig_snps Vector of significant SNP names
+#' @param output_prefix Prefix for output files
+#' @return List containing LD matrix and visualization
+
+analyze_ld <- function(geno, sig_snps, output_prefix = "rapeseed") {
+  
+  # ----------------------------
+  # 1. Prepare Significant SNPs
+  # ----------------------------
+  if(!all(sig_snps %in% geno$marker)) {
+    stop("Some significant SNPs not found in genotype data")
+  }
+  
+  idx <- geno$marker %in% sig_snps
+  map_positions <- geno[idx, "pos"]  # Get physical positions
+  
+  # ----------------------------
+  # 2. Genotype Format Conversion
+  # ----------------------------
+  geno_subset <- data.matrix(geno[idx, -(1:3)])
+  
+  # Convert to character genotypes
+  gt_matrix <- matrix("", nrow = nrow(geno_subset), ncol = ncol(geno_subset),
+                      dimnames = list(rownames = geno$marker[idx], 
+                                      colnames = colnames(geno_subset)))
+  
+  gt_matrix[geno_subset == 1] <- "AA"
+  gt_matrix[geno_subset == -1] <- "BB"
+  gt_matrix[geno_subset == 0] <- "AB"
+  
+  # ----------------------------
+  # 3. LD Calculation
+  # ----------------------------
+  library(LDheatmap)
+  
+  # Transpose and convert to genotype object
+  gt_transposed <- t(gt_matrix)
+  gt_df <- data.frame(gt_transposed, check.names = FALSE)
+  gt_object <- LDheatmap::makeGenotypes(gt_df)
+  
+  # Calculate pairwise r² values
+  ld_results <- LDheatmap::LD(gt_object, stats = "r.squared")
+  
+  # ----------------------------
+  # 4. Visualization
+  # ----------------------------
+  png(paste0("results/figures/", output_prefix, "_ld_heatmap.png"), 
+      width = 8, height = 6, units = "in", res = 300)
+  
+  ld_plot <- LDheatmap(
+    ld_results$r,
+    genetic.distances = map_positions,
+    color = heat.colors(20),
+    SNP.name = sig_snps[1],  # Anchor SNP for orientation
+    colorLegend = TRUE,
+    title = "Linkage Disequilibrium Heatmap"
+  )
+  
+  dev.off()
+  
+  # ----------------------------
+  # 5. Save Results
+  # ----------------------------
+  saveRDS(
+    list(
+      ld_matrix = ld_results$r,
+      map_positions = map_positions,
+      snp_names = sig_snps
+    ),
+    paste0("results/", output_prefix, "_ld_results.RDS")
+  )
+  
+  return(list(
+    ld_matrix = ld_results$r,
+    visualization = ld_plot
+  ))
+}
+
+# ==============================================================================
+# Example Usage (Uncomment to run)
+# ==============================================================================
+# # Load previous GWAS results
+# gwas_results <- readRDS("results/models/gwas_models.RDS")
+# 
+# # Get significant SNPs (example threshold: p < 1e-5)
+# sig_snps <- subset(gwas_results$emmax_pc3, P < 1e-5)$SNP
+# 
+# # Load genotype data
+# geno_data <- readRDS("data/genotypes.RDS")
+# 
+# # Run LD analysis
+# ld_analysis <- analyze_ld(
+#   geno = geno_data,
+#   sig_snps = sig_snps,
+#   output_prefix = "flowering_time"
+# )
