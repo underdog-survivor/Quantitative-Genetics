@@ -1,0 +1,162 @@
+# ==============================================================================
+# Maize-Teosinte QTL Analysis Pipeline
+# Traits: CUPR, DISA, GLUM, LBIL, LFLN, LIBN, PLHT, PEDS, PROL, RANK, STAM, TILL
+# ==============================================================================
+
+# ----------------------------
+# 1. Load Required Packages
+# ----------------------------
+library(qtl)  # For QTL mapping and genetic analysis
+
+# ----------------------------
+# 2. Data Import and Preparation
+# ----------------------------
+
+# Load auxiliary phenotypic data (if needed)
+# Note: Replace with generic filename for public repos
+pheno_aux <- read.table("phenotypic_metadata.csv", 
+                       header = TRUE, 
+                       sep = ";", 
+                       dec = ",")
+
+# Load genetic cross object
+mxt <- read.cross(
+  format = "csvs",
+  dir = "data",  # All data in /data directory
+  genfile = "genotypes.csv",
+  phefile = "phenotypes.csv",
+  estimate.map = FALSE
+)
+
+# ----------------------------
+# 3. Genetic Map Construction
+# ----------------------------
+
+# Estimate recombination frequencies
+mxt <- est.rf(mxt)
+
+# Form linkage groups with conservative threshold
+mxt <- formLinkageGroups(mxt, max.rf = 0.35, reorgMarkers = TRUE)
+
+# Simulate genotype probabilities
+mxt <- sim.geno(mxt)
+
+# Display genetic map structure
+cat("Constructed Genetic Map:\n")
+print(pull.map(mxt))
+
+# ==============================================================================
+# 4. QTL Analysis Function (Reusable for All Traits)
+# ==============================================================================
+
+analyze_trait <- function(trait_name, LOD_threshold = 5) {
+  #' Performs genome-wide QTL analysis for a given trait
+  #' @param trait_name Name of phenotypic trait column
+  #' @param LOD_threshold Significance threshold (default=5)
+  #' @return List containing scan results, permutations, and QTL model
+  
+  # --- Genome Scan ---
+  cat("\n=== Analyzing trait:", trait_name, "===\n")
+  scan_res <- scanone(
+    cross = mxt,
+    pheno.col = trait_name,
+    method = "mr"  # Multiple regression
+  )
+  
+  # --- Permutation Test ---
+  cat("Running permutation tests (1000 iterations)...\n")
+  perm_res <- scanone(
+    cross = mxt,
+    pheno.col = trait_name,
+    method = "mr",
+    n.perm = 1000
+  )
+  
+  # --- Visualization ---
+  png(file.path("results", paste0(trait_name, "_qtl_scan.png")),
+      width = 8.5, height = 5.5, units = "in", res = 300)
+  
+  par(mfrow = c(2, 1), mar = c(4, 4, 1.5, 0.5))
+  
+  # Chromosomes 1-5
+  plot(scan_res, chr = 1:5, 
+       show.marker.names = TRUE,
+       col = "darkblue", lwd = 2,
+       main = paste(trait_name, "QTL Scan (Chr 1-5)"))
+  add.threshold(scan_res, perms = perm_res, alpha = 0.05,
+               col = "red", lty = 2, lwd = 1.5)
+  
+  # Chromosomes 6-10
+  plot(scan_res, chr = 6:10,
+       ylim = c(0, max(scan_res$lod, na.rm = TRUE) + 1),
+       col = "darkblue", lwd = 2,
+       main = paste(trait_name, "QTL Scan (Chr 6-10)"))
+  add.threshold(scan_res, perms = perm_res, alpha = 0.05,
+               col = "red", lty = 2, lwd = 1.5)
+  
+  dev.off()
+  
+  # --- Significant QTL Identification ---
+  sig_qtl <- summary(scan_res, threshold = LOD_threshold)
+  
+  if(nrow(sig_qtl) > 0) {
+    # --- QTL Model Construction ---
+    qtl_model <- makeqtl(
+      cross = mxt,
+      chr = sig_qtl$chr,
+      pos = sig_qtl$pos
+    )
+    
+    # --- Effect Estimation ---
+    model_fit <- fitqtl(
+      cross = mxt,
+      pheno.col = trait_name,
+      qtl = qtl_model,
+      get.ests = TRUE  # Get additive/dominance effects
+    )
+    
+    return(list(
+      scan = scan_res,
+      perms = perm_res,
+      qtl = sig_qtl,
+      model = model_fit
+    ))
+  } else {
+    warning("No significant QTL found for ", trait_name)
+    return(list(
+      scan = scan_res,
+      perms = perm_res
+    ))
+  }
+}
+
+# ==============================================================================
+# 5. Analysis Execution (Example for LIBN Trait)
+# ==============================================================================
+
+# Run analysis for LIBN
+libn_results <- analyze_trait("LIBN")
+
+# Print significant QTL
+if(!is.null(libn_results$qtl)) {
+  cat("\nSignificant QTL for LIBN:\n")
+  print(libn_results$qtl)
+  
+  cat("\nAdditive/Dominance Effects:\n")
+  print(summary(libn_results$model))
+}
+
+# ==============================================================================
+# 6. Save Results and Session Info
+# ==============================================================================
+
+# Save workspace
+save.image("maize_teosinte_qtl_analysis.RData")
+
+# Save session info for reproducibility
+sink("session_info.txt")
+cat("QTL Analysis Session Information\n")
+cat("================================\n")
+cat("Analysis Date:", date(), "\n\n")
+sessionInfo()
+sink()
