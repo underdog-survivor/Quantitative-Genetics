@@ -1,0 +1,121 @@
+# ==============================================================================
+# Rapeseed Flowering Time GWAS Pipeline
+# Modules: Association Analysis, Model Comparison, Visualization
+# ==============================================================================
+
+library(rrBLUP)
+library(qqman)
+library(ggplot2)
+
+# ----------------------------
+# 1. Data Preparation
+# ----------------------------
+load_data <- function() {
+  list(
+    geno = readRDS("data/genotypes.RDS"),
+    pheno = readRDS("data/phenotypes.RDS")
+  )
+}
+
+# ----------------------------
+# 2. GWAS Core Functions
+# ----------------------------
+
+run_gwas <- function(geno, pheno, method = "P3D", n.PC = 0, K = NULL) {
+  #' Perform GWAS with different correction methods
+  #' @param method One of "P3D", "EMMAX"
+  #' @param n.PC Number of principal components
+  #' @param K Kinship matrix (required for EMMAX)
+  
+  model <- GWAS(
+    pheno = pheno[, c('id', 'flt')],
+    geno = geno,
+    P3D = (method == "P3D"),
+    n.PC = n.PC,
+    K = K,
+    plot = FALSE
+  )
+  
+  # Convert -log10(p) to actual p-values
+  model$P <- 10^(-model$flt)
+  return(model)
+}
+
+calculate_kinship <- function(geno) {
+  #' Calculate realized relationship matrix
+  X <- t(data.matrix(geno[, -c(1:3)]))
+  A.mat(X)
+}
+
+# ----------------------------
+# 3. Visualization Functions
+# ----------------------------
+
+generate_gwas_plots <- function(gwas_results, title_suffix = "") {
+  #' Create Manhattan and Q-Q plots
+  png(paste0("results/figures/manhattan_", title_suffix, ".png"), 
+      width=8.5, height=4.5, units="in", res=300)
+  manhattan(gwas_results, 
+           chr = "chr", 
+           bp = "pos", 
+           p = "P",
+           main = paste("Flowering Time GWAS", title_suffix))
+  dev.off()
+  
+  png(paste0("results/figures/qqplot_", title_suffix, ".png"), 
+      width=6, height=6, units="in", res=300)
+  qq(gwas_results$P)
+  dev.off()
+}
+
+plot_region <- function(gwas_df, chr, start, end, threshold=1e-5) {
+  #' Zoomed regional plot
+  regional_data <- subset(gwas_df, chr == 3 & pos >= start & pos <= end)
+  significant <- subset(regional_data, P < threshold)
+  
+  ggplot(regional_data, aes(x=pos, y=-log10(P))) +
+    geom_point(color=ifelse(regional_data$SNP %in% significant$SNP, "red", "blue")) +
+    geom_hline(yintercept=-log10(threshold), linetype="dashed") +
+    labs(title="Chromosome 3: Significant Region",
+         x="Position (bp)", y="-log10(p-value)")
+}
+
+# ----------------------------
+# 4. Analysis Pipeline
+# ----------------------------
+
+# Initialize data
+data <- load_data()
+A <- calculate_kinship(data$geno)
+
+# Run different models
+system.time({
+  m11_p3d <- run_gwas(data$geno, data$pheno, method="P3D")
+})
+
+models <- list(
+  emmax_pc0 = run_gwas(data$geno, data$pheno, method="EMMAX", n.PC=0, K=A),
+  emmax_pc3 = run_gwas(data$geno, data$pheno, method="EMMAX", n.PC=3, K=A),
+  emmax_pc20 = run_gwas(data$geno, data$pheno, method="EMMAX", n.PC=20, K=A)
+)
+
+# ----------------------------
+# 5. Generate Outputs
+# ----------------------------
+
+# Save all models
+saveRDS(models, "results/models/gwas_models.RDS")
+
+# Create visualizations
+lapply(names(models), function(name) {
+  generate_gwas_plots(models[[name]], name)
+})
+
+# Regional plot example
+png("results/figures/chr3_region.png", width=8, height=5, units="in", res=300)
+plot_region(models$emmax_pc3, 
+           chr=3, 
+           start=2e6, 
+           end=2.5e6, 
+           threshold=1e-5)
+dev.off()
