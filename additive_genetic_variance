@@ -1,0 +1,66 @@
+# ======================================================================
+# Additive Genetic Variance Estimation in Half-Sib Families
+# Dataset: [Plant Height Measurements in Experimental Population]
+# ======================================================================
+
+# ----------------------------
+# 1. Load Data & Inspect
+# ----------------------------
+# Read phenotypic data (generic column names)
+pheno_data <- read.table("phenotypic_data.csv", header = TRUE)
+
+# Data structure should contain:
+# - family: Factor with family IDs (e.g., "F1", "F2"...)
+# - height: Numerical plant height measurements
+str(pheno_data)
+
+# ----------------------------
+# 2. Variance Component Analysis
+# ----------------------------
+# Linear model: Height variation explained by family
+model <- lm(height ~ family, data = pheno_data)
+
+# ANOVA for variance partitioning
+anova_results <- anova(model)
+print(anova_results)
+
+# ----------------------------
+# 3. Genetic Parameter Estimation
+# ----------------------------
+# Extract mean squares
+MS_between <- anova_results["family", "Mean Sq"]
+MS_within <- anova_results["Residuals", "Mean Sq"]
+
+# Calculate components (n = number of families)
+n_families <- length(unique(pheno_data$family))
+var_between <- (MS_between - MS_within)/n_families
+var_additive <- 4 * var_between
+
+# ----------------------------
+# 4. Results Output
+# ----------------------------
+cat("\nGenetic Variance Components:\n",
+    "---------------------------------\n",
+    "Between-family variance: ", round(var_between, 2), "\n",
+    "Within-family variance:  ", round(MS_within, 2), "\n",
+    "Additive genetic variance: ", round(var_additive, 2), "\n",
+    "---------------------------------\n")
+
+# ----------------------------
+# 5. Save Analysis
+# ----------------------------
+saveRDS(list(
+  anova = anova_results,
+  var_components = c(
+    additive = var_additive,
+    between = var_between,
+    within = MS_within)
+), "variance_components.rds")
+
+sink("analysis_report.txt")
+cat("Genetic Variance Analysis Report\n")
+cat("Date:", date(), "\n\n")
+print(anova_results)
+cat("\n\nKey Estimates:\n")
+cat("Additive genetic variance:", var_additive, "\n")
+sink()
