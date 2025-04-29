@@ -1,5 +1,4 @@
 # quantitative-genetics
-.
 ├── genomic_prediction.R            # Main script for genomic prediction  
 ├── Methods.Ridge_Regression_Mar... # Ridge regression implementation  
 ├── cross_validation/               # Cross-validation code and results  
